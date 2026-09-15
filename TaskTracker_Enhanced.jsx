@@ -18,6 +18,21 @@ export default function TaskTracker() {
   const [search, setSearch] = useState('');
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('focus_dark') === 'true');
 
+  const categories = [
+    'Personal',
+    'College',
+    'Work',
+    'Project',
+    'Health',
+    'Finance',
+    'Shopping',
+    'Travel',
+    'Home',
+    'Learning',
+    'Entertainment',
+    'Other'
+  ];
+
   useEffect(() => {
     localStorage.setItem('focus_tasks', JSON.stringify(tasks));
   }, [tasks]);
@@ -592,11 +607,9 @@ export default function TaskTracker() {
           </select>
 
           <select className="select" value={category} onChange={e => setCategory(e.target.value)}>
-            <option>Personal</option>
-            <option>College</option>
-            <option>Work</option>
-            <option>Project</option>
-            <option>Other</option>
+            {categories.map(cat => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
           </select>
 
           <input
