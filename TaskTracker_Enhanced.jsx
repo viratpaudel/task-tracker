@@ -17,6 +17,7 @@ export default function TaskTracker() {
   const [dueDate, setDueDate] = useState('');
   const [search, setSearch] = useState('');
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('focus_dark') === 'true');
+  const [editingTaskId, setEditingTaskId] = useState(null);
 
   const categories = [
     'Personal',
@@ -41,8 +42,26 @@ export default function TaskTracker() {
     localStorage.setItem('focus_dark', String(darkMode));
   }, [darkMode]);
 
+  const resetTaskForm = () => {
+    setInput('');
+    setDueDate('');
+    setPriority('medium');
+    setCategory('Personal');
+    setEditingTaskId(null);
+  };
+
   const addTask = () => {
     if (!input.trim()) return;
+
+    if (editingTaskId !== null) {
+      setTasks(prev => prev.map(task =>
+        task.id === editingTaskId
+          ? { ...task, text: input.trim(), priority, category, dueDate }
+          : task
+      ));
+      resetTaskForm();
+      return;
+    }
 
     setTasks(prev => [
       ...prev,
@@ -57,9 +76,7 @@ export default function TaskTracker() {
       }
     ]);
 
-    setInput('');
-    setDueDate('');
-    setPriority('medium');
+    resetTaskForm();
   };
 
   const toggleTask = id => {
@@ -68,10 +85,20 @@ export default function TaskTracker() {
 
   const deleteTask = id => {
     setTasks(prev => prev.filter(t => t.id !== id));
+    if (editingTaskId === id) resetTaskForm();
+  };
+
+  const startEdit = task => {
+    setEditingTaskId(task.id);
+    setInput(task.text);
+    setPriority(task.priority);
+    setCategory(task.category);
+    setDueDate(task.dueDate || '');
   };
 
   const clearCompleted = () => {
     setTasks(prev => prev.filter(t => !t.done));
+    if (editingTaskId !== null) resetTaskForm();
   };
 
   const filtered = useMemo(() => {
@@ -329,11 +356,15 @@ export default function TaskTracker() {
           color: #eee;
         }
 
-        .add-btn {
+        .action-row {
           margin-left: auto;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .add-btn, .cancel-btn {
           border: none;
-          background: #17181c;
-          color: white;
           border-radius: 10px;
           padding: 9px 17px;
           cursor: pointer;
@@ -342,9 +373,23 @@ export default function TaskTracker() {
           transition: .2s ease;
         }
 
-        .add-btn:hover { transform: translateY(-2px); }
+        .add-btn {
+          background: #17181c;
+          color: white;
+        }
+
+        .add-btn:hover, .cancel-btn:hover { transform: translateY(-2px); }
+
+        .cancel-btn {
+          background: #f1f3f5;
+          color: #44464d;
+        }
 
         .dark .add-btn { background: white; color: #17181c; }
+        .dark .cancel-btn {
+          background: #2a2c31;
+          color: #eee;
+        }
 
         .search {
           width: 100%;
@@ -498,19 +543,32 @@ export default function TaskTracker() {
 
         .overdue { color: #c43f3f; }
 
+        .task-actions {
+          display: flex;
+          align-items: center;
+          gap: 2px;
+          margin-left: auto;
+        }
+
+        .edit-btn,
         .delete-btn {
           border: none;
           background: transparent;
           color: #a2a4aa;
           cursor: pointer;
-          font-size: 17px;
+          font-size: 16px;
           padding: 5px;
           opacity: 0;
           transition: .2s ease;
         }
 
+        .task-item:hover .edit-btn,
         .task-item:hover .delete-btn { opacity: 1; }
+
+        .edit-btn:hover { color: #17181c; }
         .delete-btn:hover { color: #d14b4b; }
+
+        .dark .edit-btn:hover { color: #f4f4f5; }
 
         .empty-state {
           text-align: center;
@@ -529,10 +587,11 @@ export default function TaskTracker() {
           .app { padding: 25px 14px 40px; }
           .stats-grid { grid-template-columns: repeat(2, 1fr); }
           .input-tools { align-items: stretch; }
-          .add-btn { width: 100%; margin-left: 0; }
+          .add-btn, .cancel-btn { width: 100%; }
+          .action-row { width: 100%; margin-left: 0; }
           .select, .date-input { flex: 1; }
           .header { margin-bottom: 22px; }
-          .delete-btn { opacity: 1; }
+          .edit-btn, .delete-btn { opacity: 1; }
         }
 
         @keyframes fadeInDown {
@@ -593,7 +652,7 @@ export default function TaskTracker() {
         <input
           className="main-input"
           type="text"
-          placeholder="What needs to be done?"
+          placeholder={editingTaskId !== null ? 'Edit task details...' : 'What needs to be done?'}
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && addTask()}
@@ -620,7 +679,14 @@ export default function TaskTracker() {
             onChange={e => setDueDate(e.target.value)}
           />
 
-          <button className="add-btn" onClick={addTask}>+ Add task</button>
+          <div className="action-row">
+            {editingTaskId !== null && (
+              <button className="cancel-btn" onClick={resetTaskForm}>Cancel</button>
+            )}
+            <button className="add-btn" onClick={addTask}>
+              {editingTaskId !== null ? 'Save changes' : '+ Add task'}
+            </button>
+          </div>
         </div>
       </section>
 
@@ -698,14 +764,25 @@ export default function TaskTracker() {
                   </div>
                 </div>
 
-                <button
-                  className="delete-btn"
-                  onClick={() => deleteTask(task.id)}
-                  aria-label={`Delete ${task.text}`}
-                  title="Delete task"
-                >
-                  ×
-                </button>
+                <div className="task-actions">
+                  <button
+                    className="edit-btn"
+                    onClick={() => startEdit(task)}
+                    aria-label={`Edit ${task.text}`}
+                    title="Edit task"
+                  >
+                    ✎
+                  </button>
+
+                  <button
+                    className="delete-btn"
+                    onClick={() => deleteTask(task.id)}
+                    aria-label={`Delete ${task.text}`}
+                    title="Delete task"
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
             );
           })
