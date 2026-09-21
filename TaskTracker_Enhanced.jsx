@@ -11,11 +11,13 @@ export default function TaskTracker() {
   });
 
   const [input, setInput] = useState('');
+  const [notes, setNotes] = useState('');
   const [filter, setFilter] = useState('all');
   const [priority, setPriority] = useState('medium');
   const [category, setCategory] = useState('Personal');
   const [dueDate, setDueDate] = useState('');
   const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('newest');
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('focus_dark') === 'true');
   const [editingTaskId, setEditingTaskId] = useState(null);
 
@@ -44,6 +46,7 @@ export default function TaskTracker() {
 
   const resetTaskForm = () => {
     setInput('');
+    setNotes('');
     setDueDate('');
     setPriority('medium');
     setCategory('Personal');
@@ -56,7 +59,7 @@ export default function TaskTracker() {
     if (editingTaskId !== null) {
       setTasks(prev => prev.map(task =>
         task.id === editingTaskId
-          ? { ...task, text: input.trim(), priority, category, dueDate }
+          ? { ...task, text: input.trim(), priority, category, dueDate, notes: notes.trim() }
           : task
       ));
       resetTaskForm();
@@ -68,6 +71,7 @@ export default function TaskTracker() {
       {
         id: Date.now(),
         text: input.trim(),
+        notes: notes.trim(),
         done: false,
         priority,
         category,
@@ -91,6 +95,7 @@ export default function TaskTracker() {
   const startEdit = task => {
     setEditingTaskId(task.id);
     setInput(task.text);
+    setNotes(task.notes || '');
     setPriority(task.priority);
     setCategory(task.category);
     setDueDate(task.dueDate || '');
@@ -101,10 +106,40 @@ export default function TaskTracker() {
     if (editingTaskId !== null) resetTaskForm();
   };
 
+  const markAllDone = () => {
+    setTasks(prev => prev.map(task => ({ ...task, done: true })));
+  };
+
+  const sortedTasks = useMemo(() => {
+    const items = [...tasks];
+
+    switch (sortBy) {
+      case 'oldest':
+        return items.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+      case 'priority':
+        return items.sort((a, b) => {
+          const p = { high: 3, medium: 2, low: 1 };
+          return (p[b.priority] || 0) - (p[a.priority] || 0);
+        });
+      case 'dueSoon':
+        return items.sort((a, b) => {
+          if (!a.dueDate && !b.dueDate) return 0;
+          if (!a.dueDate) return 1;
+          if (!b.dueDate) return -1;
+          return new Date(a.dueDate) - new Date(b.dueDate);
+        });
+      case 'alphabetical':
+        return items.sort((a, b) => a.text.localeCompare(b.text));
+      case 'newest':
+      default:
+        return items.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    }
+  }, [tasks, sortBy]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
 
-    return tasks.filter(task => {
+    return sortedTasks.filter(task => {
       const matchesFilter =
         filter === 'all' ||
         (filter === 'done' && task.done) ||
@@ -114,11 +149,12 @@ export default function TaskTracker() {
         !q ||
         task.text.toLowerCase().includes(q) ||
         task.category.toLowerCase().includes(q) ||
-        task.priority.toLowerCase().includes(q);
+        task.priority.toLowerCase().includes(q) ||
+        (task.notes || '').toLowerCase().includes(q);
 
       return matchesFilter && matchesSearch;
     });
-  }, [tasks, filter, search]);
+  }, [sortedTasks, filter, search]);
 
   const total = tasks.length;
   const completed = tasks.filter(t => t.done).length;
@@ -127,6 +163,8 @@ export default function TaskTracker() {
   const highPriority = tasks.filter(t => !t.done && t.priority === 'high').length;
 
   const today = new Date().toISOString().split('T')[0];
+  const dueToday = tasks.filter(t => t.dueDate === today && !t.done).length;
+  const overdue = tasks.filter(t => t.dueDate && t.dueDate < today && !t.done).length;
 
   const formatDate = date => {
     if (!date) return 'No deadline';
@@ -151,7 +189,7 @@ export default function TaskTracker() {
           transition: background .3s ease;
         }
 
-        button, input, select { font-family: inherit; }
+        button, input, select, textarea { font-family: inherit; }
 
         .app {
           min-height: 100vh;
@@ -161,9 +199,7 @@ export default function TaskTracker() {
           transition: color .3s ease;
         }
 
-        .app.dark {
-          color: #f4f4f5;
-        }
+        .app.dark { color: #f4f4f5; }
 
         .header {
           display: flex;
@@ -231,7 +267,7 @@ export default function TaskTracker() {
 
         .stats-grid {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: repeat(5, 1fr);
           gap: 10px;
           margin-bottom: 18px;
         }
@@ -333,6 +369,25 @@ export default function TaskTracker() {
 
         .main-input::placeholder { color: #a3a5ac; }
 
+        .notes-input {
+          width: 100%;
+          min-height: 56px;
+          resize: vertical;
+          background: #f8f9fa;
+          border: 1px solid #e1e3e7;
+          border-radius: 10px;
+          padding: 10px 11px;
+          color: inherit;
+          margin-bottom: 10px;
+          font-size: 12px;
+          outline: none;
+        }
+
+        .dark .notes-input {
+          background: #27282d;
+          border-color: #393a41;
+        }
+
         .input-tools {
           display: flex;
           gap: 8px;
@@ -363,7 +418,7 @@ export default function TaskTracker() {
           gap: 8px;
         }
 
-        .add-btn, .cancel-btn {
+        .add-btn, .cancel-btn, .bulk-btn {
           border: none;
           border-radius: 10px;
           padding: 9px 17px;
@@ -378,11 +433,17 @@ export default function TaskTracker() {
           color: white;
         }
 
-        .add-btn:hover, .cancel-btn:hover { transform: translateY(-2px); }
+        .add-btn:hover, .cancel-btn:hover, .bulk-btn:hover { transform: translateY(-2px); }
 
         .cancel-btn {
           background: #f1f3f5;
           color: #44464d;
+        }
+
+        .bulk-btn {
+          background: #eef4ff;
+          color: #2e5cc7;
+          border: 1px solid #dfeaff;
         }
 
         .dark .add-btn { background: white; color: #17181c; }
@@ -390,20 +451,47 @@ export default function TaskTracker() {
           background: #2a2c31;
           color: #eee;
         }
+        .dark .bulk-btn {
+          background: #212b3f;
+          border-color: #303d5d;
+          color: #dfe9ff;
+        }
+
+        .toolbar-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
 
         .search {
-          width: 100%;
+          flex: 1;
           border: 1px solid #e1e3e7;
           border-radius: 11px;
           padding: 11px 13px;
           background: white;
           color: #17181c;
           outline: none;
-          margin-bottom: 12px;
           font-size: 13px;
         }
 
         .dark .search {
+          background: #1d1e22;
+          border-color: #303137;
+          color: white;
+        }
+
+        .sort-select {
+          border: 1px solid #e1e3e7;
+          border-radius: 11px;
+          padding: 11px 12px;
+          background: white;
+          color: #17181c;
+          outline: none;
+          font-size: 12px;
+        }
+
+        .dark .sort-select {
           background: #1d1e22;
           border-color: #303137;
           color: white;
@@ -451,11 +539,18 @@ export default function TaskTracker() {
           justify-content: space-between;
           align-items: center;
           margin-bottom: 10px;
+          gap: 10px;
         }
 
         .result-count {
           font-size: 12px;
           color: #8a8d95;
+        }
+
+        .task-actions-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
         }
 
         .clear-btn {
@@ -479,7 +574,7 @@ export default function TaskTracker() {
           border-radius: 14px;
           padding: 13px 14px;
           display: flex;
-          align-items: center;
+          align-items: flex-start;
           gap: 11px;
           transition: .22s ease;
           animation: slideIn .3s ease-out both;
@@ -505,6 +600,7 @@ export default function TaskTracker() {
           accent-color: #17181c;
           cursor: pointer;
           flex-shrink: 0;
+          margin-top: 3px;
         }
 
         .task-content { flex: 1; min-width: 0; }
@@ -516,6 +612,17 @@ export default function TaskTracker() {
         }
 
         .task-item.done .task-text { text-decoration: line-through; }
+
+        .task-note {
+          margin-top: 8px;
+          font-size: 11px;
+          line-height: 1.5;
+          color: #73767e;
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+        }
+
+        .dark .task-note { color: #b4b8bf; }
 
         .task-meta {
           display: flex;
@@ -548,6 +655,7 @@ export default function TaskTracker() {
           align-items: center;
           gap: 2px;
           margin-left: auto;
+          padding-left: 10px;
         }
 
         .edit-btn,
@@ -587,10 +695,12 @@ export default function TaskTracker() {
           .app { padding: 25px 14px 40px; }
           .stats-grid { grid-template-columns: repeat(2, 1fr); }
           .input-tools { align-items: stretch; }
-          .add-btn, .cancel-btn { width: 100%; }
+          .add-btn, .cancel-btn, .bulk-btn { width: 100%; }
           .action-row { width: 100%; margin-left: 0; }
           .select, .date-input { flex: 1; }
           .header { margin-bottom: 22px; }
+          .toolbar-row { flex-direction: column; align-items: stretch; }
+          .sort-select, .search { width: 100%; }
           .edit-btn, .delete-btn { opacity: 1; }
         }
 
@@ -633,8 +743,12 @@ export default function TaskTracker() {
           <div className="stat-value">{completed}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">High priority</div>
-          <div className="stat-value">{highPriority}</div>
+          <div className="stat-label">Due today</div>
+          <div className="stat-value">{dueToday}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Overdue</div>
+          <div className="stat-value">{overdue}</div>
         </div>
       </div>
 
@@ -656,6 +770,13 @@ export default function TaskTracker() {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && addTask()}
+        />
+
+        <textarea
+          className="notes-input"
+          placeholder="Add a quick note or context..."
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
         />
 
         <div className="input-tools">
@@ -690,13 +811,23 @@ export default function TaskTracker() {
         </div>
       </section>
 
-      <input
-        className="search"
-        type="search"
-        placeholder="Search tasks, categories or priorities..."
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-      />
+      <div className="toolbar-row">
+        <input
+          className="search"
+          type="search"
+          placeholder="Search tasks, notes, categories or priorities..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+
+        <select className="sort-select" value={sortBy} onChange={e => setSortBy(e.target.value)}>
+          <option value="newest">Newest</option>
+          <option value="oldest">Oldest</option>
+          <option value="priority">Priority</option>
+          <option value="dueSoon">Due soon</option>
+          <option value="alphabetical">A–Z</option>
+        </select>
+      </div>
 
       <div className="filters">
         {['all', 'active', 'done'].map(item => (
@@ -712,9 +843,14 @@ export default function TaskTracker() {
 
       <div className="task-toolbar">
         <span className="result-count">{filtered.length} task{filtered.length === 1 ? '' : 's'}</span>
-        {completed > 0 && (
-          <button className="clear-btn" onClick={clearCompleted}>Clear completed</button>
-        )}
+        <div className="task-actions-row">
+          {total > 0 && (
+            <button className="bulk-btn" onClick={markAllDone}>Mark all done</button>
+          )}
+          {completed > 0 && (
+            <button className="clear-btn" onClick={clearCompleted}>Clear completed</button>
+          )}
+        </div>
       </div>
 
       <div className="tasks-container">
@@ -751,6 +887,7 @@ export default function TaskTracker() {
 
                 <div className="task-content">
                   <div className="task-text">{task.text}</div>
+                  {task.notes && <div className="task-note">{task.notes}</div>}
                   <div className="task-meta">
                     <span className={`tag ${task.priority === 'high' ? 'priority-high' : task.priority === 'low' ? 'priority-low' : ''}`}>
                       {task.priority}
