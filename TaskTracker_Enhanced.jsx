@@ -1,15 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
+const categories = ['Personal', 'College', 'Work', 'Project', 'Health', 'Finance', 'Shopping', 'Travel', 'Home', 'Learning', 'Entertainment', 'Other'];
+const priorityRank = { high: 3, medium: 2, low: 1 };
+
 export default function TaskTracker() {
   const [tasks, setTasks] = useState(() => {
-    try {
-      const saved = localStorage.getItem('focus_tasks');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+    try { return JSON.parse(localStorage.getItem('focus_tasks') || '[]'); } catch { return []; }
   });
-
   const [input, setInput] = useState('');
   const [notes, setNotes] = useState('');
   const [filter, setFilter] = useState('all');
@@ -20,911 +17,132 @@ export default function TaskTracker() {
   const [sortBy, setSortBy] = useState('newest');
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('focus_dark') === 'true');
   const [editingTaskId, setEditingTaskId] = useState(null);
+  const [focusTaskId, setFocusTaskId] = useState('');
+  const [secondsLeft, setSecondsLeft] = useState(25 * 60);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [sessions, setSessions] = useState(() => Number(localStorage.getItem('focus_sessions') || 0));
 
-  const categories = [
-    'Personal',
-    'College',
-    'Work',
-    'Project',
-    'Health',
-    'Finance',
-    'Shopping',
-    'Travel',
-    'Home',
-    'Learning',
-    'Entertainment',
-    'Other'
-  ];
+  useEffect(() => localStorage.setItem('focus_tasks', JSON.stringify(tasks)), [tasks]);
+  useEffect(() => localStorage.setItem('focus_dark', String(darkMode)), [darkMode]);
+  useEffect(() => localStorage.setItem('focus_sessions', String(sessions)), [sessions]);
 
   useEffect(() => {
-    localStorage.setItem('focus_tasks', JSON.stringify(tasks));
-  }, [tasks]);
+    if (!timerRunning) return undefined;
+    const timer = window.setInterval(() => {
+      setSecondsLeft(value => {
+        if (value <= 1) {
+          setTimerRunning(false);
+          setSessions(count => count + 1);
+          return 25 * 60;
+        }
+        return value - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [timerRunning]);
 
-  useEffect(() => {
-    localStorage.setItem('focus_dark', String(darkMode));
-  }, [darkMode]);
-
-  const resetTaskForm = () => {
-    setInput('');
-    setNotes('');
-    setDueDate('');
-    setPriority('medium');
-    setCategory('Personal');
-    setEditingTaskId(null);
+  const today = new Date().toISOString().split('T')[0];
+  const resetForm = () => {
+    setInput(''); setNotes(''); setDueDate(''); setPriority('medium');
+    setCategory('Personal'); setEditingTaskId(null);
   };
 
-  const addTask = () => {
+  const saveTask = () => {
     if (!input.trim()) return;
-
     if (editingTaskId !== null) {
-      setTasks(prev => prev.map(task =>
-        task.id === editingTaskId
-          ? { ...task, text: input.trim(), priority, category, dueDate, notes: notes.trim() }
-          : task
-      ));
-      resetTaskForm();
-      return;
+      setTasks(current => current.map(task => task.id === editingTaskId
+        ? { ...task, text: input.trim(), notes: notes.trim(), priority, category, dueDate }
+        : task));
+    } else {
+      setTasks(current => [...current, {
+        id: Date.now(), text: input.trim(), notes: notes.trim(), done: false,
+        priority, category, dueDate, createdAt: new Date().toISOString()
+      }]);
     }
-
-    setTasks(prev => [
-      ...prev,
-      {
-        id: Date.now(),
-        text: input.trim(),
-        notes: notes.trim(),
-        done: false,
-        priority,
-        category,
-        dueDate,
-        createdAt: new Date().toISOString()
-      }
-    ]);
-
-    resetTaskForm();
+    resetForm();
   };
 
-  const toggleTask = id => {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
-  };
-
-  const deleteTask = id => {
-    setTasks(prev => prev.filter(t => t.id !== id));
-    if (editingTaskId === id) resetTaskForm();
-  };
-
-  const startEdit = task => {
-    setEditingTaskId(task.id);
-    setInput(task.text);
-    setNotes(task.notes || '');
-    setPriority(task.priority);
-    setCategory(task.category);
+  const editTask = task => {
+    setEditingTaskId(task.id); setInput(task.text); setNotes(task.notes || '');
+    setPriority(task.priority || 'medium'); setCategory(task.category || 'Personal');
     setDueDate(task.dueDate || '');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const toggleTask = id => setTasks(current => current.map(task => task.id === id ? { ...task, done: !task.done } : task));
+  const deleteTask = id => {
+    setTasks(current => current.filter(task => task.id !== id));
+    if (editingTaskId === id) resetForm();
+    if (String(focusTaskId) === String(id)) setFocusTaskId('');
   };
 
-  const clearCompleted = () => {
-    setTasks(prev => prev.filter(t => !t.done));
-    if (editingTaskId !== null) resetTaskForm();
-  };
-
-  const markAllDone = () => {
-    setTasks(prev => prev.map(task => ({ ...task, done: true })));
-  };
-
-  const sortedTasks = useMemo(() => {
-    const items = [...tasks];
-
-    switch (sortBy) {
-      case 'oldest':
-        return items.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-      case 'priority':
-        return items.sort((a, b) => {
-          const p = { high: 3, medium: 2, low: 1 };
-          return (p[b.priority] || 0) - (p[a.priority] || 0);
-        });
-      case 'dueSoon':
-        return items.sort((a, b) => {
-          if (!a.dueDate && !b.dueDate) return 0;
-          if (!a.dueDate) return 1;
-          if (!b.dueDate) return -1;
-          return new Date(a.dueDate) - new Date(b.dueDate);
-        });
-      case 'alphabetical':
-        return items.sort((a, b) => a.text.localeCompare(b.text));
-      case 'newest':
-      default:
-        return items.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  const sortedTasks = useMemo(() => [...tasks].sort((a, b) => {
+    if (sortBy === 'priority') return (priorityRank[b.priority] || 0) - (priorityRank[a.priority] || 0);
+    if (sortBy === 'oldest') return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+    if (sortBy === 'alphabetical') return a.text.localeCompare(b.text);
+    if (sortBy === 'dueSoon') {
+      if (!a.dueDate) return 1; if (!b.dueDate) return -1;
+      return a.dueDate.localeCompare(b.dueDate);
     }
-  }, [tasks, sortBy]);
+    return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+  }), [tasks, sortBy]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-
+  const visibleTasks = useMemo(() => {
+    const query = search.trim().toLowerCase();
     return sortedTasks.filter(task => {
-      const matchesFilter =
-        filter === 'all' ||
-        (filter === 'done' && task.done) ||
-        (filter === 'active' && !task.done);
-
-      const matchesSearch =
-        !q ||
-        task.text.toLowerCase().includes(q) ||
-        task.category.toLowerCase().includes(q) ||
-        task.priority.toLowerCase().includes(q) ||
-        (task.notes || '').toLowerCase().includes(q);
-
-      return matchesFilter && matchesSearch;
+      const stateMatch = filter === 'all' || (filter === 'active' && !task.done) || (filter === 'done' && task.done);
+      const textMatch = !query || [task.text, task.notes, task.category, task.priority].some(value => (value || '').toLowerCase().includes(query));
+      return stateMatch && textMatch;
     });
   }, [sortedTasks, filter, search]);
 
   const total = tasks.length;
-  const completed = tasks.filter(t => t.done).length;
+  const completed = tasks.filter(task => task.done).length;
   const active = total - completed;
-  const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
-  const highPriority = tasks.filter(t => !t.done && t.priority === 'high').length;
+  const dueToday = tasks.filter(task => task.dueDate === today && !task.done).length;
+  const overdue = tasks.filter(task => task.dueDate && task.dueDate < today && !task.done).length;
+  const percent = total ? Math.round((completed / total) * 100) : 0;
+  const focusTask = tasks.find(task => String(task.id) === String(focusTaskId));
+  const minutes = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
+  const seconds = String(secondsLeft % 60).padStart(2, '0');
 
-  const today = new Date().toISOString().split('T')[0];
-  const dueToday = tasks.filter(t => t.dueDate === today && !t.done).length;
-  const overdue = tasks.filter(t => t.dueDate && t.dueDate < today && !t.done).length;
-
-  const formatDate = date => {
-    if (!date) return 'No deadline';
-    return new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric'
-    });
-  };
+  const formatDate = date => new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 
   return (
     <div className={`app ${darkMode ? 'dark' : ''}`}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
-
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-          background: #f4f5f7;
-          font-family: 'DM Sans', sans-serif;
-          color: #17181c;
-          transition: background .3s ease;
-        }
-
-        button, input, select, textarea { font-family: inherit; }
-
-        .app {
-          min-height: 100vh;
-          max-width: 760px;
-          margin: 0 auto;
-          padding: 34px 20px 50px;
-          transition: color .3s ease;
-        }
-
-        .app.dark { color: #f4f4f5; }
-
-        .header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          margin-bottom: 28px;
-          animation: fadeInDown .55s ease-out;
-        }
-
-        .header-top {
-          display: flex;
-          align-items: center;
-          gap: 14px;
-        }
-
-        .icon-badge {
-          width: 48px;
-          height: 48px;
-          border-radius: 15px;
-          background: #17181c;
-          color: white;
-          display: grid;
-          place-items: center;
-          font-size: 21px;
-          font-weight: 700;
-          box-shadow: 0 8px 22px rgba(0,0,0,.14);
-        }
-
-        .dark .icon-badge { background: white; color: #17181c; }
-
-        h1 {
-          font-family: 'Space Grotesk', sans-serif;
-          font-size: 31px;
-          letter-spacing: -1px;
-          font-weight: 700;
-        }
-
-        .subtitle {
-          font-size: 13px;
-          color: #777b84;
-          margin-top: 3px;
-        }
-
-        .dark .subtitle { color: #a1a1aa; }
-
-        .theme-btn {
-          border: 1px solid #e1e3e7;
-          background: white;
-          color: #3b3d43;
-          border-radius: 11px;
-          padding: 10px 13px;
-          cursor: pointer;
-          font-size: 13px;
-          font-weight: 600;
-          transition: .2s ease;
-        }
-
-        .theme-btn:hover { transform: translateY(-2px); }
-
-        .dark .theme-btn {
-          background: #202126;
-          border-color: #34353c;
-          color: #eee;
-        }
-
-        .stats-grid {
-          display: grid;
-          grid-template-columns: repeat(5, 1fr);
-          gap: 10px;
-          margin-bottom: 18px;
-        }
-
-        .stat-card {
-          background: white;
-          border: 1px solid #e4e5e8;
-          border-radius: 15px;
-          padding: 15px;
-          transition: .25s ease;
-        }
-
-        .stat-card:hover {
-          transform: translateY(-3px);
-          box-shadow: 0 10px 25px rgba(0,0,0,.06);
-        }
-
-        .dark .stat-card {
-          background: #1d1e22;
-          border-color: #303137;
-        }
-
-        .stat-label {
-          font-size: 10px;
-          text-transform: uppercase;
-          letter-spacing: .7px;
-          color: #858891;
-          font-weight: 700;
-          margin-bottom: 5px;
-        }
-
-        .stat-value {
-          font-family: 'Space Grotesk', sans-serif;
-          font-size: 23px;
-          font-weight: 700;
-        }
-
-        .progress-wrap {
-          background: white;
-          border: 1px solid #e4e5e8;
-          border-radius: 15px;
-          padding: 14px 16px;
-          margin-bottom: 18px;
-        }
-
-        .dark .progress-wrap {
-          background: #1d1e22;
-          border-color: #303137;
-        }
-
-        .progress-top {
-          display: flex;
-          justify-content: space-between;
-          font-size: 12px;
-          color: #777b84;
-          margin-bottom: 9px;
-        }
-
-        .progress-bar {
-          height: 7px;
-          border-radius: 99px;
-          background: #eceef1;
-          overflow: hidden;
-        }
-
-        .dark .progress-bar { background: #303137; }
-
-        .progress-fill {
-          height: 100%;
-          border-radius: inherit;
-          background: #17181c;
-          transition: width .4s ease;
-        }
-
-        .dark .progress-fill { background: white; }
-
-        .input-section {
-          background: white;
-          border: 1px solid #e4e5e8;
-          border-radius: 17px;
-          padding: 12px;
-          margin-bottom: 14px;
-        }
-
-        .dark .input-section {
-          background: #1d1e22;
-          border-color: #303137;
-        }
-
-        .main-input {
-          width: 100%;
-          border: none;
-          outline: none;
-          background: transparent;
-          padding: 8px 8px 12px;
-          font-size: 15px;
-          color: inherit;
-        }
-
-        .main-input::placeholder { color: #a3a5ac; }
-
-        .notes-input {
-          width: 100%;
-          min-height: 56px;
-          resize: vertical;
-          background: #f8f9fa;
-          border: 1px solid #e1e3e7;
-          border-radius: 10px;
-          padding: 10px 11px;
-          color: inherit;
-          margin-bottom: 10px;
-          font-size: 12px;
-          outline: none;
-        }
-
-        .dark .notes-input {
-          background: #27282d;
-          border-color: #393a41;
-        }
-
-        .input-tools {
-          display: flex;
-          gap: 8px;
-          align-items: center;
-          flex-wrap: wrap;
-        }
-
-        .select, .date-input {
-          border: 1px solid #e1e3e7;
-          background: #f8f9fa;
-          border-radius: 9px;
-          padding: 8px 10px;
-          font-size: 12px;
-          color: #44464d;
-          outline: none;
-        }
-
-        .dark .select, .dark .date-input {
-          background: #27282d;
-          border-color: #393a41;
-          color: #eee;
-        }
-
-        .action-row {
-          margin-left: auto;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .add-btn, .cancel-btn, .bulk-btn {
-          border: none;
-          border-radius: 10px;
-          padding: 9px 17px;
-          cursor: pointer;
-          font-weight: 700;
-          font-size: 12px;
-          transition: .2s ease;
-        }
-
-        .add-btn {
-          background: #17181c;
-          color: white;
-        }
-
-        .add-btn:hover, .cancel-btn:hover, .bulk-btn:hover { transform: translateY(-2px); }
-
-        .cancel-btn {
-          background: #f1f3f5;
-          color: #44464d;
-        }
-
-        .bulk-btn {
-          background: #eef4ff;
-          color: #2e5cc7;
-          border: 1px solid #dfeaff;
-        }
-
-        .dark .add-btn { background: white; color: #17181c; }
-        .dark .cancel-btn {
-          background: #2a2c31;
-          color: #eee;
-        }
-        .dark .bulk-btn {
-          background: #212b3f;
-          border-color: #303d5d;
-          color: #dfe9ff;
-        }
-
-        .toolbar-row {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          margin-bottom: 12px;
-        }
-
-        .search {
-          flex: 1;
-          border: 1px solid #e1e3e7;
-          border-radius: 11px;
-          padding: 11px 13px;
-          background: white;
-          color: #17181c;
-          outline: none;
-          font-size: 13px;
-        }
-
-        .dark .search {
-          background: #1d1e22;
-          border-color: #303137;
-          color: white;
-        }
-
-        .sort-select {
-          border: 1px solid #e1e3e7;
-          border-radius: 11px;
-          padding: 11px 12px;
-          background: white;
-          color: #17181c;
-          outline: none;
-          font-size: 12px;
-        }
-
-        .dark .sort-select {
-          background: #1d1e22;
-          border-color: #303137;
-          color: white;
-        }
-
-        .filters {
-          display: flex;
-          gap: 7px;
-          margin-bottom: 15px;
-        }
-
-        .filter-btn {
-          flex: 1;
-          padding: 9px;
-          border: 1px solid #e1e3e7;
-          border-radius: 10px;
-          background: white;
-          color: #6d7078;
-          cursor: pointer;
-          font-size: 12px;
-          font-weight: 600;
-          transition: .2s ease;
-        }
-
-        .filter-btn.active {
-          background: #17181c;
-          color: white;
-          border-color: #17181c;
-        }
-
-        .dark .filter-btn {
-          background: #1d1e22;
-          border-color: #303137;
-          color: #a7a7ae;
-        }
-
-        .dark .filter-btn.active {
-          background: white;
-          color: #17181c;
-          border-color: white;
-        }
-
-        .task-toolbar {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 10px;
-          gap: 10px;
-        }
-
-        .result-count {
-          font-size: 12px;
-          color: #8a8d95;
-        }
-
-        .task-actions-row {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-
-        .clear-btn {
-          border: none;
-          background: transparent;
-          color: #d14b4b;
-          font-size: 12px;
-          font-weight: 600;
-          cursor: pointer;
-        }
-
-        .tasks-container {
-          display: flex;
-          flex-direction: column;
-          gap: 9px;
-        }
-
-        .task-item {
-          background: white;
-          border: 1px solid #e4e5e8;
-          border-radius: 14px;
-          padding: 13px 14px;
-          display: flex;
-          align-items: flex-start;
-          gap: 11px;
-          transition: .22s ease;
-          animation: slideIn .3s ease-out both;
-        }
-
-        .task-item:hover {
-          transform: translateX(2px);
-          box-shadow: 0 7px 20px rgba(0,0,0,.05);
-        }
-
-        .dark .task-item {
-          background: #1d1e22;
-          border-color: #303137;
-        }
-
-        .task-item.done {
-          opacity: .58;
-        }
-
-        .checkbox {
-          width: 18px;
-          height: 18px;
-          accent-color: #17181c;
-          cursor: pointer;
-          flex-shrink: 0;
-          margin-top: 3px;
-        }
-
-        .task-content { flex: 1; min-width: 0; }
-
-        .task-text {
-          font-size: 13px;
-          line-height: 1.4;
-          overflow-wrap: anywhere;
-        }
-
-        .task-item.done .task-text { text-decoration: line-through; }
-
-        .task-note {
-          margin-top: 8px;
-          font-size: 11px;
-          line-height: 1.5;
-          color: #73767e;
-          white-space: pre-wrap;
-          overflow-wrap: anywhere;
-        }
-
-        .dark .task-note { color: #b4b8bf; }
-
-        .task-meta {
-          display: flex;
-          gap: 6px;
-          margin-top: 6px;
-          flex-wrap: wrap;
-        }
-
-        .tag {
-          font-size: 10px;
-          padding: 4px 7px;
-          border-radius: 6px;
-          background: #f0f1f3;
-          color: #666971;
-          font-weight: 700;
-        }
-
-        .dark .tag { background: #292a30; color: #aaa; }
-
-        .priority-high { background: #fff0f0; color: #c43f3f; }
-        .priority-low { background: #eef8f1; color: #3f8755; }
-
-        .dark .priority-high { background: #3a2424; color: #ef7777; }
-        .dark .priority-low { background: #223328; color: #7bc08e; }
-
-        .overdue { color: #c43f3f; }
-
-        .task-actions {
-          display: flex;
-          align-items: center;
-          gap: 2px;
-          margin-left: auto;
-          padding-left: 10px;
-        }
-
-        .edit-btn,
-        .delete-btn {
-          border: none;
-          background: transparent;
-          color: #a2a4aa;
-          cursor: pointer;
-          font-size: 16px;
-          padding: 5px;
-          opacity: 0;
-          transition: .2s ease;
-        }
-
-        .task-item:hover .edit-btn,
-        .task-item:hover .delete-btn { opacity: 1; }
-
-        .edit-btn:hover { color: #17181c; }
-        .delete-btn:hover { color: #d14b4b; }
-
-        .dark .edit-btn:hover { color: #f4f4f5; }
-
-        .empty-state {
-          text-align: center;
-          padding: 50px 20px;
-          color: #92959d;
-        }
-
-        .empty-icon {
-          font-size: 34px;
-          margin-bottom: 9px;
-        }
-
-        .empty-text { font-size: 13px; }
-
-        @media (max-width: 600px) {
-          .app { padding: 25px 14px 40px; }
-          .stats-grid { grid-template-columns: repeat(2, 1fr); }
-          .input-tools { align-items: stretch; }
-          .add-btn, .cancel-btn, .bulk-btn { width: 100%; }
-          .action-row { width: 100%; margin-left: 0; }
-          .select, .date-input { flex: 1; }
-          .header { margin-bottom: 22px; }
-          .toolbar-row { flex-direction: column; align-items: stretch; }
-          .sort-select, .search { width: 100%; }
-          .edit-btn, .delete-btn { opacity: 1; }
-        }
-
-        @keyframes fadeInDown {
-          from { opacity: 0; transform: translateY(-12px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        @keyframes slideIn {
-          from { opacity: 0; transform: translateY(7px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
+        *{box-sizing:border-box} body{margin:0;background:#f4f5f7;font-family:Inter,system-ui,sans-serif;color:#17181c}.app{max-width:820px;min-height:100vh;margin:auto;padding:32px 18px 52px}.dark{background:#121316;color:#f4f4f5}.dark .card,.dark .input,.dark input,.dark select,.dark textarea{background:#1d1e22;border-color:#303137;color:#f4f4f5}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px}.brand{display:flex;gap:13px;align-items:center}.logo{width:47px;height:47px;border-radius:14px;background:#17181c;color:white;display:grid;place-items:center;font-size:22px;font-weight:800}.dark .logo{background:#fff;color:#17181c}h1{margin:0;font-size:31px;letter-spacing:-1px}.muted{color:#858891;font-size:13px;margin:3px 0 0}.button,.theme{border:1px solid #e0e2e6;border-radius:10px;padding:9px 13px;background:#fff;cursor:pointer;font-weight:700;font-size:12px}.theme{font-size:13px}.dark .button,.dark .theme{background:#202126;border-color:#34353c;color:#eee}.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:9px;margin-bottom:15px}.card,.input{background:#fff;border:1px solid #e2e4e8;border-radius:15px}.stat{padding:13px}.stat b{display:block;font-size:22px;margin-top:4px}.label{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:#858891;font-weight:800}.progress{padding:14px 16px;margin-bottom:15px}.progress-top{display:flex;justify-content:space-between;font-size:12px;color:#777b84;margin-bottom:8px}.bar{height:7px;background:#eceef1;border-radius:20px;overflow:hidden}.fill{height:100%;background:#17181c;border-radius:inherit}.dark .fill{background:#fff}.input{padding:12px;margin-bottom:14px}.main-input{width:100%;border:0!important;background:transparent!important;padding:7px 6px 12px!important;font-size:15px!important;outline:0}.notes{width:100%;min-height:55px;resize:vertical;border:1px solid #e1e3e7;border-radius:9px;padding:10px;font-size:12px;margin-bottom:9px}.controls,.toolbar,.filters,.task-head,.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.select,.date,.search{border:1px solid #e1e3e7;border-radius:9px;padding:9px 10px;background:#f8f9fa;font-size:12px}.actions{margin-left:auto}.primary{background:#17181c;color:#fff}.dark .primary{background:#fff;color:#17181c}.toolbar{margin-bottom:10px}.search{flex:1;min-width:180px}.filters{margin-bottom:14px}.filters .button{flex:1}.active-filter{background:#17181c;color:#fff}.dark .active-filter{background:#fff;color:#17181c}.task-head{justify-content:space-between;margin-bottom:10px}.task-list{display:flex;flex-direction:column;gap:9px}.task{display:flex;align-items:flex-start;gap:10px;padding:13px 14px}.task.done{opacity:.55}.check{width:18px;height:18px;margin-top:2px;accent-color:#17181c}.task-body{flex:1;min-width:0}.task-text{font-size:13px;overflow-wrap:anywhere}.done .task-text{text-decoration:line-through}.note{font-size:11px;color:#73767e;white-space:pre-wrap;margin-top:7px;line-height:1.5}.meta{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}.tag{font-size:10px;padding:4px 7px;border-radius:6px;background:#f0f1f3;color:#666971;font-weight:700}.high{background:#fff0f0;color:#c43f3f}.low{background:#eef8f1;color:#3f8755}.overdue{color:#c43f3f}.icon{border:0;background:transparent;cursor:pointer;font-size:17px;color:#999;padding:3px}.focus{padding:16px;margin-bottom:15px}.focus-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.timer{font-size:34px;font-weight:800;letter-spacing:2px;margin:6px 0}.focus-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.focus select{flex:1;min-width:180px}.empty{text-align:center;padding:48px 15px;color:#92959d}.clear{border:0;background:transparent;color:#d14b4b;cursor:pointer;font-weight:700;font-size:12px}@media(max-width:650px){.stats{grid-template-columns:repeat(3,1fr)}.header{gap:12px}.actions{width:100%;margin-left:0}.controls>*{flex:1}.task-head{align-items:flex-start}.app{padding:24px 13px 40px}}
       `}</style>
 
       <header className="header">
-        <div className="header-top">
-          <div className="icon-badge">✓</div>
-          <div>
-            <h1>Focus</h1>
-            <p className="subtitle">Simple tasks. Clear progress. Better focus.</p>
-          </div>
-        </div>
-
-        <button className="theme-btn" onClick={() => setDarkMode(v => !v)}>
-          {darkMode ? '☀ Light' : '☾ Dark'}
-        </button>
+        <div className="brand"><div className="logo">✓</div><div><h1>Focus</h1><p className="muted">Simple tasks. Clear progress. Better focus.</p></div></div>
+        <button className="theme" onClick={() => setDarkMode(value => !value)}>{darkMode ? '☀ Light' : '☾ Dark'}</button>
       </header>
 
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-label">Total</div>
-          <div className="stat-value">{total}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Active</div>
-          <div className="stat-value">{active}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Done</div>
-          <div className="stat-value">{completed}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Due today</div>
-          <div className="stat-value">{dueToday}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Overdue</div>
-          <div className="stat-value">{overdue}</div>
-        </div>
+      <div className="stats">
+        {[['Total', total], ['Active', active], ['Done', completed], ['Due today', dueToday], ['Overdue', overdue], ['Sessions', sessions]].map(([label, value]) => <div className="card stat" key={label}><span className="label">{label}</span><b>{value}</b></div>)}
       </div>
+      <div className="card progress"><div className="progress-top"><span>Overall progress</span><strong>{percent}%</strong></div><div className="bar"><div className="fill" style={{ width: `${percent}%` }} /></div></div>
 
-      <div className="progress-wrap">
-        <div className="progress-top">
-          <span>Overall progress</span>
-          <strong>{percent}%</strong>
-        </div>
-        <div className="progress-bar">
-          <div className="progress-fill" style={{ width: `${percent}%` }} />
-        </div>
-      </div>
-
-      <section className="input-section">
-        <input
-          className="main-input"
-          type="text"
-          placeholder={editingTaskId !== null ? 'Edit task details...' : 'What needs to be done?'}
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && addTask()}
-        />
-
-        <textarea
-          className="notes-input"
-          placeholder="Add a quick note or context..."
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-        />
-
-        <div className="input-tools">
-          <select className="select" value={priority} onChange={e => setPriority(e.target.value)}>
-            <option value="low">Low priority</option>
-            <option value="medium">Medium priority</option>
-            <option value="high">High priority</option>
-          </select>
-
-          <select className="select" value={category} onChange={e => setCategory(e.target.value)}>
-            {categories.map(cat => (
-              <option key={cat} value={cat}>{cat}</option>
-            ))}
-          </select>
-
-          <input
-            className="date-input"
-            type="date"
-            min={today}
-            value={dueDate}
-            onChange={e => setDueDate(e.target.value)}
-          />
-
-          <div className="action-row">
-            {editingTaskId !== null && (
-              <button className="cancel-btn" onClick={resetTaskForm}>Cancel</button>
-            )}
-            <button className="add-btn" onClick={addTask}>
-              {editingTaskId !== null ? 'Save changes' : '+ Add task'}
-            </button>
-          </div>
-        </div>
+      <section className="card focus">
+        <div className="focus-title"><div><strong>Focus session</strong><div className="muted">A 25-minute sprint for one task</div></div><strong>{sessions} completed</strong></div>
+        <div className="focus-controls"><select className="select" value={focusTaskId} onChange={event => setFocusTaskId(event.target.value)}><option value="">Choose a task (optional)</option>{tasks.filter(task => !task.done).map(task => <option key={task.id} value={task.id}>{task.text}</option>)}</select><span className="timer">{minutes}:{seconds}</span><button className="button primary" onClick={() => setTimerRunning(value => !value)}>{timerRunning ? 'Pause' : 'Start'}</button><button className="button" onClick={() => { setTimerRunning(false); setSecondsLeft(25 * 60); }}>Reset</button></div>
+        {focusTask && <div className="muted" style={{ marginTop: 8 }}>Working on: {focusTask.text}</div>}
       </section>
 
-      <div className="toolbar-row">
-        <input
-          className="search"
-          type="search"
-          placeholder="Search tasks, notes, categories or priorities..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
+      <section className="input">
+        <input className="main-input" placeholder={editingTaskId !== null ? 'Edit task details...' : 'What needs to be done?'} value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => event.key === 'Enter' && saveTask()} />
+        <textarea className="notes" placeholder="Add a quick note or context..." value={notes} onChange={event => setNotes(event.target.value)} />
+        <div className="controls"><select className="select" value={priority} onChange={event => setPriority(event.target.value)}><option value="low">Low priority</option><option value="medium">Medium priority</option><option value="high">High priority</option></select><select className="select" value={category} onChange={event => setCategory(event.target.value)}>{categories.map(item => <option key={item}>{item}</option>)}</select><input className="date" type="date" min={today} value={dueDate} onChange={event => setDueDate(event.target.value)} /><div className="actions">{editingTaskId !== null && <button className="button" onClick={resetForm}>Cancel</button>}<button className="button primary" onClick={saveTask}>{editingTaskId !== null ? 'Save changes' : '+ Add task'}</button></div></div>
+      </section>
 
-        <select className="sort-select" value={sortBy} onChange={e => setSortBy(e.target.value)}>
-          <option value="newest">Newest</option>
-          <option value="oldest">Oldest</option>
-          <option value="priority">Priority</option>
-          <option value="dueSoon">Due soon</option>
-          <option value="alphabetical">A–Z</option>
-        </select>
-      </div>
+      <div className="toolbar"><input className="search" type="search" placeholder="Search tasks, notes, categories or priorities..." value={search} onChange={event => setSearch(event.target.value)} /><select className="select" value={sortBy} onChange={event => setSortBy(event.target.value)}><option value="newest">Newest</option><option value="oldest">Oldest</option><option value="priority">Priority</option><option value="dueSoon">Due soon</option><option value="alphabetical">A–Z</option></select></div>
+      <div className="filters">{['all', 'active', 'done'].map(item => <button key={item} className={`button ${filter === item ? 'active-filter' : ''}`} onClick={() => setFilter(item)}>{item === 'all' ? 'All' : item === 'active' ? 'Active' : 'Completed'}</button>)}</div>
+      <div className="task-head"><span className="muted">{visibleTasks.length} task{visibleTasks.length === 1 ? '' : 's'}</span><div className="actions">{total > 0 && <button className="button" onClick={() => setTasks(current => current.map(task => ({ ...task, done: true })))}>Mark all done</button>}{completed > 0 && <button className="clear" onClick={() => setTasks(current => current.filter(task => !task.done))}>Clear completed</button>}</div></div>
 
-      <div className="filters">
-        {['all', 'active', 'done'].map(item => (
-          <button
-            key={item}
-            className={`filter-btn ${filter === item ? 'active' : ''}`}
-            onClick={() => setFilter(item)}
-          >
-            {item === 'all' ? 'All' : item === 'active' ? 'Active' : 'Completed'}
-          </button>
-        ))}
-      </div>
-
-      <div className="task-toolbar">
-        <span className="result-count">{filtered.length} task{filtered.length === 1 ? '' : 's'}</span>
-        <div className="task-actions-row">
-          {total > 0 && (
-            <button className="bulk-btn" onClick={markAllDone}>Mark all done</button>
-          )}
-          {completed > 0 && (
-            <button className="clear-btn" onClick={clearCompleted}>Clear completed</button>
-          )}
-        </div>
-      </div>
-
-      <div className="tasks-container">
-        {filtered.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon">{search ? '⌕' : filter === 'done' ? '✓' : '✦'}</div>
-            <div className="empty-text">
-              {search
-                ? 'No tasks match your search'
-                : filter === 'done'
-                  ? 'No completed tasks yet'
-                  : filter === 'active'
-                    ? 'You are all caught up'
-                    : 'Add your first task to get started'}
-            </div>
-          </div>
-        ) : (
-          filtered.map((task, idx) => {
-            const isOverdue = task.dueDate && task.dueDate < today && !task.done;
-
-            return (
-              <div
-                key={task.id}
-                className={`task-item ${task.done ? 'done' : ''}`}
-                style={{ animationDelay: `${idx * 0.035}s` }}
-              >
-                <input
-                  className="checkbox"
-                  type="checkbox"
-                  checked={task.done}
-                  onChange={() => toggleTask(task.id)}
-                  aria-label={`Complete ${task.text}`}
-                />
-
-                <div className="task-content">
-                  <div className="task-text">{task.text}</div>
-                  {task.notes && <div className="task-note">{task.notes}</div>}
-                  <div className="task-meta">
-                    <span className={`tag ${task.priority === 'high' ? 'priority-high' : task.priority === 'low' ? 'priority-low' : ''}`}>
-                      {task.priority}
-                    </span>
-                    <span className="tag">{task.category}</span>
-                    {task.dueDate && (
-                      <span className={`tag ${isOverdue ? 'overdue' : ''}`}>
-                        {isOverdue ? 'Overdue · ' : 'Due · '}{formatDate(task.dueDate)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="task-actions">
-                  <button
-                    className="edit-btn"
-                    onClick={() => startEdit(task)}
-                    aria-label={`Edit ${task.text}`}
-                    title="Edit task"
-                  >
-                    ✎
-                  </button>
-
-                  <button
-                    className="delete-btn"
-                    onClick={() => deleteTask(task.id)}
-                    aria-label={`Delete ${task.text}`}
-                    title="Delete task"
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
+      <div className="task-list">{visibleTasks.length === 0 ? <div className="empty">{search ? 'No tasks match your search' : filter === 'done' ? 'No completed tasks yet' : filter === 'active' ? 'You are all caught up' : 'Add your first task to get started'}</div> : visibleTasks.map(task => {
+        const isOverdue = task.dueDate && task.dueDate < today && !task.done;
+        return <div className={`card task ${task.done ? 'done' : ''}`} key={task.id}><input className="check" type="checkbox" checked={task.done} onChange={() => toggleTask(task.id)} aria-label={`Complete ${task.text}`} /><div className="task-body"><div className="task-text">{task.text}</div>{task.notes && <div className="note">{task.notes}</div>}<div className="meta"><span className={`tag ${task.priority === 'high' ? 'high' : task.priority === 'low' ? 'low' : ''}`}>{task.priority}</span><span className="tag">{task.category}</span>{task.dueDate && <span className={`tag ${isOverdue ? 'overdue' : ''}`}>{isOverdue ? 'Overdue · ' : 'Due · '}{formatDate(task.dueDate)}</span>}</div></div><div><button className="icon" onClick={() => editTask(task)} aria-label={`Edit ${task.text}`}>✎</button><button className="icon" onClick={() => deleteTask(task.id)} aria-label={`Delete ${task.text}`}>×</button></div></div>;
+      })}</div>
     </div>
   );
 }
