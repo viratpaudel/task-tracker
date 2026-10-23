@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-
+#thistoolwasmadeformyslef
 const categories = ['Personal', 'College', 'Work', 'Project', 'Health', 'Finance', 'Shopping', 'Travel', 'Home', 'Learning', 'Entertainment', 'Other'];
 const priorityRank = { high: 3, medium: 2, low: 1 };
 
